@@ -2,21 +2,23 @@
 
 import os
 import socket
+from base64 import b64encode
+from hashlib import sha1
+from struct import pack
 
 class HTTPSinleRequestServer:
+    DELIM = b'\r\n'
+    MSGS = {
+            101: b"101 Switching Protocols",
+            200: b"200 OK",
+            400: b"400 Bad Request",
+            404: b"404 Not Found",
+            501: b"501 Not Implemented",
+            }
+    PROT = b"HTTP/1.1 "
+    WS_GUID_CONST = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
-    def __init__(self):
-        self.d = b'\r\n'
-        self.msgs = {
-                101: b"101 Switching Protocols",
-                200: b"200 OK",
-                400: b"400 Bad Request",
-                404: b"404 Not Found",
-                501: b"501 Not Implemented",
-                }
-        self.prot = b"HTTP/1.1 "
-
-    def listen(self, ip, port):
+    def __init__(self, ip, port):
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                 sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -30,68 +32,82 @@ class HTTPSinleRequestServer:
             print("[-]", err)
 
     def respond(self, conn, code, headers=[], content="", close=True):
-        conn.send(self.prot)
-        conn.send(self.msgs[code])
-        conn.send(self.d)
+        conn.send(self.PROT)
+        conn.send(self.MSGS[code])
+        conn.send(self.DELIM)
         for h in headers:
             conn.send(h.encode('ascii'))
-            conn.send(self.d)
-        conn.send(self.d)
+            conn.send(self.DELIM)
+        conn.send(self.DELIM)
         if content != "":
-            conn.send(content.encode('ascii'))
+            conn.send(content)
         if close:
             conn.close()
-    
-    def handle(self, conn):
-        headers = bytearray()
-        fl = False
-        while True:
-            data = conn.recv(4096)
-            if not fl:
-                hend = data.find(self.d)
-                if hend != -1:
-                    headers.extend(data[:hend])
-                else:
-                    headers.extend(data)
-            if data.find(self.d + self.d):
-                break
 
-        print("[>]", repr(headers))
-
-        req = headers.decode('ascii').split(' ') 
+    def validateWSRequest(self, request, headers):
+        req = request.split(' ') 
         head = False
 
         if req[0] == "GET":
             pass
         elif req[0] == "HEAD":
-            head = True
+            return (False,400)
         else:
-            self.respond(conn, 501) 
+            return (False,501) 
             return
 
-        if req[2] != 'HTTP/1.0' and req[2] != 'HTTP/1.1': 
-            self.respond(conn, 400)
-            return
+        if req[2] != 'HTTP/1.1': 
+            return (False,400)
 
         if req[1] == "":
-            self.respond(conn, 400)
-            return
+            return (False,400)
         elif req[1] != '/ws':
-            self.respond(conn, 404)
+            return (False,404)
+
+        return (True, 101)
+    
+    def handle(self, conn):
+        headers = bytearray()
+        while True:
+            headers.extend(conn.recv(4096))
+            hend = headers.find(self.DELIM + self.DELIM)
+            if hend != -1:
+                headers = headers[:hend]
+                break
+
+        headers = headers.decode('ascii').split(self.DELIM.decode('ascii'))
+        if len(headers) == 0:
+            #   probably throw here - connection ended without data
+            conn.close()
             return
 
-        if head:
-            self.respond(conn, 400)
+        request = headers.pop(0)
+        headers = dict(t.split(':') for t in headers)
 
-        #   TODO:
-        sec_accept_value = ""
+        print("[>]", repr(request))
 
-        self.respond(conn, 101, headers = [
+        (valid, code) = self.validateWSRequest(request, headers)
+
+        if not valid:
+            self.respond(conn, code)
+            return
+
+        print("[>]", repr(headers["Sec-WebSocket-Key"]))
+
+        concat = headers["Sec-WebSocket-Key"].strip() + self.WS_GUID_CONST
+        sec_accept_value = b64encode(sha1(concat.encode('ascii')).digest()).decode('ascii')
+
+        payload=b'{"status":"success"}'
+        assert(len(payload) < 126)
+        wsFramedData = b"\x81" + pack('b', len(payload)) + payload
+        wsCloseFrame = b"\x88\x00"
+
+        self.respond(conn, code, headers = [
             "Upgrade: websocket",
             "Connection: Upgrade",
             "Sec-WebSocket-Accept: " + sec_accept_value
             ],
-            content='{"status":"success"}'
+            content = wsFramedData + wsCloseFrame
             )
 
 def main():
@@ -100,8 +116,7 @@ def main():
     port = 1234
     while True:
         try:
-            s = HTTPSinleRequestServer()
-            s.listen(ip, port)
+            HTTPSinleRequestServer(ip, port)
         except Exception as e:
             #print("[!]",e)
             raise
