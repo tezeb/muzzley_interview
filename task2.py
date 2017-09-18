@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import os
 import socket
 from base64 import b64encode
 from hashlib import sha1
@@ -19,6 +18,9 @@ class HTTPSinleRequestServer:
     WS_GUID_CONST = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
     def __init__(self, ip, port):
+        """ Create an HTTP server listening on `ip:port`, which will handle a
+        single http connection. On client request to update to WebSockets the
+        server will follow and send some data. """
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                 sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -32,6 +34,7 @@ class HTTPSinleRequestServer:
             print("[-]", err)
 
     def respond(self, conn, code, headers=[], content="", close=True):
+        """ Helper method to respond with proper HTTP codes/messages """
         conn.send(self.PROT)
         conn.send(self.MSGS[code])
         conn.send(self.DELIM)
@@ -45,16 +48,18 @@ class HTTPSinleRequestServer:
             conn.close()
 
     def validateWSRequest(self, request, headers):
+        """ Basic validation of request. As the server is able to handle only a
+        WebSocket update request, everything else is treated as invalid. """
         req = request.split(' ') 
         head = False
 
         if req[0] == "GET":
             pass
+        #   Required by HTTP RFC
         elif req[0] == "HEAD":
             return (False,400)
         else:
             return (False,501) 
-            return
 
         if req[2] != 'HTTP/1.1': 
             return (False,400)
@@ -67,6 +72,8 @@ class HTTPSinleRequestServer:
         return (True, 101)
     
     def handle(self, conn):
+        """ Method for handling an HTTP WebSocket update request. If requested
+        properly it sends some data to client. """
         headers = bytearray()
         while True:
             headers.extend(conn.recv(4096))
@@ -82,7 +89,7 @@ class HTTPSinleRequestServer:
             return
 
         request = headers.pop(0)
-        headers = dict(t.split(':') for t in headers)
+        headers = dict(t.split(':', 1) for t in headers)
 
         print("[>]", repr(request))
 
@@ -91,8 +98,6 @@ class HTTPSinleRequestServer:
         if not valid:
             self.respond(conn, code)
             return
-
-        print("[>]", repr(headers["Sec-WebSocket-Key"]))
 
         concat = headers["Sec-WebSocket-Key"].strip() + self.WS_GUID_CONST
         sec_accept_value = b64encode(sha1(concat.encode('ascii')).digest()).decode('ascii')
@@ -114,12 +119,7 @@ def main():
     #   TODO: use args
     ip = "127.0.0.1"
     port = 1234
-    while True:
-        try:
-            HTTPSinleRequestServer(ip, port)
-        except Exception as e:
-            #print("[!]",e)
-            raise
+    HTTPSinleRequestServer(ip, port)
 
 if __name__ == "__main__":
     main()

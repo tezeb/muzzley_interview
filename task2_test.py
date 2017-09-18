@@ -6,6 +6,7 @@ import random
 from base64 import b64encode
 from hashlib import sha1
 from binascii import unhexlify
+from websocket import create_connection
 
 def runner(request, headers=[], content=""):
     ip = "127.0.0.1"
@@ -51,6 +52,16 @@ def test(req, exp, headers=[], content=b""):
     sleep(.01)
     return True
 
+def test1():
+    ws = create_connection("ws://127.0.0.1:1234/ws")
+    t = ws.recv() 
+    if t == "{\"status\":\"success\"}":
+        print("[+] OK")
+    else:
+        print("[-] FAIL: Invalid data:", repr(t))
+    ws.close()
+
+
 def getWSKey():
     wsKeyConst = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
     key = b64encode(unhexlify(hex(random.getrandbits(16*8))[2:].rjust(32, '0')))
@@ -74,7 +85,7 @@ if __name__ == "__main__":
                 "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ=="
                 ],
             content=b"\x81\x14{\"status\":\"success\"}\x88\x00"
-            )
+        )
     for i in range(5):
         wskey = getWSKey()
         test("GET /ws HTTP/1.1", [
@@ -89,4 +100,5 @@ if __name__ == "__main__":
                     "Connection: Upgrade",
                     "Sec-WebSocket-Key: " + wskey[0],
                     ]
-                )
+            )
+    test1()
