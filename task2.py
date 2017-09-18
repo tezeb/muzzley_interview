@@ -2,14 +2,17 @@
 
 import os
 import socket
-from time import sleep
 
 class HTTPSinleRequestServer:
 
     def __init__(self):
         self.d = b'\r\n'
         self.msgs = {
+                101: b"101 Switching Protocols",
                 200: b"200 OK",
+                400: b"400 Bad Request",
+                404: b"404 Not Found",
+                501: b"501 Not Implemented",
                 }
         self.prot = b"HTTP/1.1 "
 
@@ -31,11 +34,11 @@ class HTTPSinleRequestServer:
         conn.send(self.msgs[code])
         conn.send(self.d)
         for h in headers:
-            conn.send(h)
+            conn.send(h.encode('ascii'))
             conn.send(self.d)
         conn.send(self.d)
         if content != "":
-            conn.send(content)
+            conn.send(content.encode('ascii'))
         if close:
             conn.close()
     
@@ -55,9 +58,41 @@ class HTTPSinleRequestServer:
 
         print("[>]", repr(headers))
 
-        self.respond(conn, 200)
+        req = headers.decode('ascii').split(' ') 
+        head = False
 
+        if req[0] == "GET":
+            pass
+        elif req[0] == "HEAD":
+            head = True
+        else:
+            self.respond(conn, 501) 
+            return
 
+        if req[2] != 'HTTP/1.0' and req[2] != 'HTTP/1.1': 
+            self.respond(conn, 400)
+            return
+
+        if req[1] == "":
+            self.respond(conn, 400)
+            return
+        elif req[1] != '/ws':
+            self.respond(conn, 404)
+            return
+
+        if head:
+            self.respond(conn, 400)
+
+        #   TODO:
+        sec_accept_value = ""
+
+        self.respond(conn, 101, headers = [
+            "Upgrade: websocket",
+            "Connection: Upgrade",
+            "Sec-WebSocket-Accept: " + sec_accept_value
+            ],
+            content='{"status":"success"}'
+            )
 
 def main():
     #   TODO: use args
