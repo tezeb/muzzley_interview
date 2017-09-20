@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import sys
 import socket
 from base64 import b64encode
 from hashlib import sha1
@@ -119,7 +120,11 @@ def main():
     #   TODO: use args
     ip = "127.0.0.1"
     port = 1234
-    HTTPSinleRequestServer(ip, port)
+    if len(sys.argv) == 2 and sys.argv[1] == "--test":
+        while True:
+            HTTPSinleRequestServer(ip, port)
+    else:
+        HTTPSinleRequestServer(ip, port)
 
 if __name__ == "__main__":
     main()
